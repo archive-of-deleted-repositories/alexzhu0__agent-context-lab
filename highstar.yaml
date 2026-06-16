@@ -1,0 +1,31 @@
+name: agent-context-lab
+one_liner: Scan coding-agent instructions, MCP config, and repo context into a CI-friendly readiness report.
+target_user: Developers using Codex, Claude Code, Cursor, or other coding agents
+pain_point: Coding agents silently inherit stale instructions, conflicting rules, oversized context, and risky MCP tools before anyone notices.
+demo_command: PYTHONPATH=src python3 -m agent_context_lab scan examples/conflicting-agent-repo --format markdown
+tier: flagship
+maturity_status: release-ready-2026-06-16
+next_release: v0.1.0
+polish_score: 88
+topics:
+  - ai-tools
+  - coding-agents
+  - agent-context
+  - mcp
+  - cli
+  - developer-tools
+  - llmops
+release_channel:
+  - github
+  - relevant-developer-communities
+launch_copy:
+  - I am building agent-context-lab to show what your coding agent will read, trust, repeat, or misuse before it edits your repo.
+  - It scans agent instruction files, MCP config, and context bloat into a local CI report.
+  - Try it with: PYTHONPATH=src python3 -m agent_context_lab scan examples/conflicting-agent-repo --format markdown
+quality_gate:
+  commands:
+    - python3 -m unittest discover -s tests
+metrics_goal:
+  day_1_stars: 5
+  day_3_stars: 15
+  day_7_stars: 50

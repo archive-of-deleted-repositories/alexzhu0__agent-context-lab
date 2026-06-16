@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-context-lab"
+version = "0.1.0"
+description = "Scan coding-agent instructions, MCP config, and repo context into a CI-friendly readiness report."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "alexzhu0" }]
+keywords = ["ai-tools", "coding-agents", "agent-context", "mcp", "cli", "developer-tools", "llmops"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development"
+]
+
+[project.scripts]
+agent-context-lab = "agent_context_lab.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/alexzhu0/agent-context-lab"
+Issues = "https://github.com/alexzhu0/agent-context-lab/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
