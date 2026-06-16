@@ -38,7 +38,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def render_report(command: str, path: str, output_format: str, budget_chars: int, max_chars: int = 4000) -> tuple[int, str, bool]:
+def render_report(
+    command: str,
+    path: str,
+    output_format: str,
+    budget_chars: int,
+    max_chars: int = 4000,
+) -> tuple[int, str, bool]:
     report = scan_repository(Path(path), budget_chars=budget_chars)
     if command == "scan" and output_format == "json":
         output = render_json(report)
@@ -60,7 +66,7 @@ def render_report(command: str, path: str, output_format: str, budget_chars: int
         output = render_brief(report, max_chars=max_chars)
     else:
         output = render_markdown(report)
-    return report.score, output, bool(report.stats.get("scan_error"))
+    return report.score, output, report.scan_error
 
 
 def main(argv: list[str] | None = None) -> int:

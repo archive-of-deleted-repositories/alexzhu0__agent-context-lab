@@ -12,6 +12,7 @@ def report_to_dict(report: ScanReport) -> dict[str, object]:
     return {
         "root": str(report.root),
         "score": report.score,
+        "scan_error": report.scan_error,
         "findings": [asdict(finding) for finding in report.findings],
         "context_files": [asdict(item) for item in report.context_files],
         "mcp_servers": [asdict(item) for item in report.mcp_servers],
@@ -27,6 +28,7 @@ def render_score_json(report: ScanReport) -> str:
     payload = {
         "root": str(report.root),
         "score": report.score,
+        "scan_error": report.scan_error,
         "findings": report.stats.get("findings", 0),
         "context_files": report.stats.get("context_files", 0),
         "mcp_servers": report.stats.get("mcp_servers", 0),
@@ -38,6 +40,7 @@ def render_score_json(report: ScanReport) -> str:
 def render_context_map_json(report: ScanReport) -> str:
     payload = {
         "root": str(report.root),
+        "scan_error": report.scan_error,
         "context_files": [asdict(item) for item in report.context_files],
         "stats": {
             "context_files": report.stats.get("context_files", 0),
@@ -51,6 +54,7 @@ def render_context_map_json(report: ScanReport) -> str:
 def render_mcp_json(report: ScanReport) -> str:
     payload = {
         "root": str(report.root),
+        "scan_error": report.scan_error,
         "mcp_servers": [asdict(item) for item in report.mcp_servers],
         "stats": {
             "mcp_servers": report.stats.get("mcp_servers", 0),
@@ -65,6 +69,7 @@ def render_brief_json(report: ScanReport, max_chars: int = 4000) -> str:
     payload = {
         "root": str(report.root),
         "score": report.score,
+        "scan_error": report.scan_error,
         "brief": render_brief(report, max_chars=max_chars),
         "stats": report.stats,
     }
@@ -125,7 +130,9 @@ def render_mcp(report: ScanReport) -> str:
         return "\n".join(lines).rstrip() + "\n"
     lines.extend(["| Risk | Server | Command | Reasons | File |", "| --- | --- | --- | --- | --- |"])
     for server in report.mcp_servers:
-        lines.append(table_row([server.risk, server.name, server.command, ", ".join(server.reasons) or "-", server.file]))
+        lines.append(
+            table_row([server.risk, server.name, server.command, ", ".join(server.reasons) or "-", server.file])
+        )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -141,6 +148,8 @@ def render_score(report: ScanReport) -> str:
 
 
 def render_brief(report: ScanReport, max_chars: int = 4000) -> str:
+    if max_chars <= 0:
+        return ""
     lines = [
         "# Agent Context Brief",
         "",
@@ -165,13 +174,16 @@ def render_brief(report: ScanReport, max_chars: int = 4000) -> str:
     if report.mcp_servers:
         lines.extend(["", "## MCP Tools", ""])
         for server in report.mcp_servers:
-            lines.append(f"- `{server.name}` risk={server.risk}: {', '.join(server.reasons) or 'no obvious risk markers'}")
+            reasons = ", ".join(server.reasons) or "no obvious risk markers"
+            lines.append(f"- `{server.name}` risk={server.risk}: {reasons}")
 
     text = "\n".join(lines).rstrip() + "\n"
     if len(text) <= max_chars:
         return text
     suffix = "\n\n[brief truncated to max chars]\n"
-    return text[: max(0, max_chars - len(suffix))].rstrip() + suffix
+    if max_chars <= len(suffix):
+        return "[truncated]\n"[:max_chars]
+    return text[: max_chars - len(suffix)].rstrip() + suffix
 
 
 def render_markdown(report: ScanReport) -> str:
@@ -180,6 +192,7 @@ def render_markdown(report: ScanReport) -> str:
         "",
         f"- Root: `{report.root}`",
         f"- Score: {report.score}/100",
+        f"- Scan error: {str(report.scan_error).lower()}",
         f"- Findings: {report.stats.get('findings', 0)}",
         f"- Context files: {report.stats.get('context_files', 0)}",
         f"- MCP servers: {report.stats.get('mcp_servers', 0)}",

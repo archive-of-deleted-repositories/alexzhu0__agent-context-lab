@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_context_lab.scanner import scan_repository
+from agent_context_lab.model import Finding
+from agent_context_lab.scanner import has_scan_error, scan_repository
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,8 +64,51 @@ class ScannerTests(unittest.TestCase):
             root = Path(tmp) / "missing"
             report = scan_repository(root)
         self.assertEqual(0, report.score)
+        self.assertTrue(report.scan_error)
         self.assertTrue(report.stats["scan_error"])
         self.assertEqual("ACL-MISSING-PATH", report.findings[0].rule_id)
+
+    def test_skipped_directories_are_pruned_before_scanning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root / "AGENTS.md", "# Agent\n")
+            write(root / ".git" / "AGENTS.md", "deprecated legacy\n")
+            write(root / "node_modules" / "package" / "AGENTS.md", "deprecated legacy\n")
+            write(root / ".venv" / "AGENTS.md", "deprecated legacy\n")
+            report = scan_repository(root)
+        self.assertEqual(1, report.stats["files_scanned"])
+        self.assertEqual(["AGENTS.md"], [item.path for item in report.context_files])
+        self.assertEqual(100, report.score)
+
+    def test_skipped_directories_are_case_insensitive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root / "AGENTS.md", "# Agent\n")
+            write(root / "Node_Modules" / "package" / "AGENTS.md", "deprecated legacy\n")
+            report = scan_repository(root)
+        self.assertEqual(1, report.stats["files_scanned"])
+        self.assertEqual(["AGENTS.md"], [item.path for item in report.context_files])
+
+    def test_scan_error_is_explicit_not_rule_id_derived(self):
+        findings = [
+            Finding(
+                rule_id="ACL-RENAMED-HARD-ERROR",
+                severity="high",
+                message="Hard scan error.",
+                file="AGENTS.md",
+                is_scan_error=True,
+            )
+        ]
+        self.assertTrue(has_scan_error(findings))
+
+    def test_docs_detection_is_case_insensitive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write(root / "AGENTS.md", "# Agent\n")
+            write(root / "Docs" / "Guide.MD", "# Guide\n")
+            report = scan_repository(root)
+        docs = [item for item in report.context_files if item.kind == "docs"]
+        self.assertEqual(["Docs/Guide.MD"], [item.path for item in docs])
 
     def test_budget_exceeded_is_a_finding(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -81,6 +125,9 @@ class ScannerTests(unittest.TestCase):
             report = scan_repository(root)
         finding = next(finding for finding in report.findings if finding.rule_id == "ACL-MCP-JSON")
         self.assertEqual("high", finding.severity)
+        self.assertTrue(finding.is_scan_error)
+        self.assertTrue(report.scan_error)
+        self.assertTrue(report.stats["scan_error"])
 
     def test_non_utf8_context_is_preserved_with_replacement(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -97,6 +144,9 @@ class ScannerTests(unittest.TestCase):
             with patch("agent_context_lab.scanner.read_text", side_effect=OSError("denied")):
                 report = scan_repository(root)
         self.assertTrue(any(finding.rule_id == "ACL-READ-ERROR" for finding in report.findings))
+        self.assertTrue(any(finding.is_scan_error for finding in report.findings))
+        self.assertTrue(report.scan_error)
+        self.assertTrue(report.stats["scan_error"])
 
     def test_unexpected_mcp_shape_is_a_medium_finding(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -106,6 +156,9 @@ class ScannerTests(unittest.TestCase):
             report = scan_repository(root)
         finding = next(finding for finding in report.findings if finding.rule_id == "ACL-MCP-SHAPE")
         self.assertEqual("medium", finding.severity)
+        self.assertTrue(finding.is_scan_error)
+        self.assertTrue(report.scan_error)
+        self.assertTrue(report.stats["scan_error"])
 
     def test_malformed_mcp_server_entry_is_a_medium_finding(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -115,6 +168,9 @@ class ScannerTests(unittest.TestCase):
             report = scan_repository(root)
         finding = next(finding for finding in report.findings if finding.rule_id == "ACL-MCP-SERVER-SHAPE")
         self.assertEqual("medium", finding.severity)
+        self.assertTrue(finding.is_scan_error)
+        self.assertTrue(report.scan_error)
+        self.assertTrue(report.stats["scan_error"])
 
     def test_test_guidance_conflict_is_detected(self):
         with tempfile.TemporaryDirectory() as tmp:

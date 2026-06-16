@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Iterable
@@ -41,7 +42,6 @@ MCP_NAMES = {
 STALE_RE = re.compile(r"\b(deprecated|outdated|legacy|todo|fixme)\b", re.IGNORECASE)
 SECRET_RE = re.compile(r"(TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL)", re.IGNORECASE)
 NETWORK_RE = re.compile(r"https?://|curl\s+|wget\s+", re.IGNORECASE)
-
 CONFLICT_RULES = [
     (
         "ACL-CONFLICT-ASK",
@@ -71,11 +71,10 @@ def iter_repo_files(root: Path) -> Iterable[Path]:
     if root.is_file():
         yield root
         return
-    for path in sorted(root.rglob("*")):
-        if any(part in SKIP_DIRS for part in path.parts):
-            continue
-        if path.is_file():
-            yield path
+    for current, dirs, files in os.walk(root):
+        dirs[:] = sorted(dirname for dirname in dirs if dirname.lower() not in SKIP_DIRS)
+        for filename in sorted(files):
+            yield Path(current) / filename
 
 
 def relative(path: Path, root: Path) -> str:
@@ -113,10 +112,13 @@ def classify_context(path: Path, root: Path) -> tuple[str, int] | None:
     if is_mcp_config(path):
         return ("mcp-config", 95)
     lower = path.name.lower()
-    rel = relative(path, root)
     if lower == "readme.md":
         return ("readme", 75)
-    if rel.startswith("docs/") and path.suffix.lower() in {".md", ".txt"}:
+    try:
+        rel_parts = tuple(part.lower() for part in path.relative_to(root).parts)
+    except ValueError:
+        rel_parts = tuple(part.lower() for part in path.parts)
+    if rel_parts and rel_parts[0] == "docs" and path.suffix.lower() in {".md", ".txt"}:
         return ("docs", 50)
     if lower in {"package.json", "pyproject.toml", "go.mod", "cargo.toml"}:
         return ("project-metadata", 45)
@@ -205,6 +207,7 @@ def extract_mcp_servers(path: Path, root: Path, text: str | None = None) -> tupl
                 file=rel,
                 line=exc.lineno,
                 suggestion="Fix the JSON before letting agents load MCP tools from this repo.",
+                is_scan_error=True,
             )
         ]
 
@@ -217,6 +220,7 @@ def extract_mcp_servers(path: Path, root: Path, text: str | None = None) -> tupl
                 message="MCP config does not contain an object under mcpServers or servers.",
                 file=rel,
                 suggestion="Use the standard mcpServers object so tools are auditable.",
+                is_scan_error=True,
             )
         ]
 
@@ -231,6 +235,7 @@ def extract_mcp_servers(path: Path, root: Path, text: str | None = None) -> tupl
                     message=f"MCP server `{name}` must be an object, got {type(config).__name__}.",
                     file=rel,
                     suggestion="Define each MCP server as an object with command, args, and optional env fields.",
+                    is_scan_error=True,
                 )
             )
             continue
@@ -254,12 +259,27 @@ def extract_mcp_servers(path: Path, root: Path, text: str | None = None) -> tupl
             reasons.append("dynamic tool execution")
 
         risk = "low"
-        if any(reason in reasons for reason in ["shell command", "network fetch", "pipe to shell", "root filesystem scope", "secret-like environment variable"]):
+        high_risk_reasons = {
+            "shell command",
+            "network fetch",
+            "pipe to shell",
+            "root filesystem scope",
+            "secret-like environment variable",
+        }
+        if any(reason in reasons for reason in high_risk_reasons):
             risk = "high"
         elif reasons:
             risk = "medium"
 
-        servers.append(McpServer(name=str(name), command=command_line or "(missing command)", risk=risk, reasons=tuple(reasons), file=rel))
+        servers.append(
+            McpServer(
+                name=str(name),
+                command=command_line or "(missing command)",
+                risk=risk,
+                reasons=tuple(reasons),
+                file=rel,
+            )
+        )
         if risk != "low":
             findings.append(
                 Finding(
@@ -267,7 +287,9 @@ def extract_mcp_servers(path: Path, root: Path, text: str | None = None) -> tupl
                     severity="high" if risk == "high" else "medium",
                     message=f"MCP server `{name}` has {risk} risk: {', '.join(reasons)}.",
                     file=rel,
-                    suggestion="Pin the tool, narrow filesystem/network scope, and avoid secret-bearing env unless required.",
+                    suggestion=(
+                        "Pin the tool, narrow filesystem/network scope, and avoid secret-bearing env unless required."
+                    ),
                 )
             )
     return servers, findings
@@ -277,6 +299,10 @@ def score_findings(findings: list[Finding]) -> int:
     penalties = {"high": 18, "medium": 9, "low": 3}
     total = sum(penalties.get(finding.severity, 5) for finding in findings)
     return max(0, 100 - total)
+
+
+def has_scan_error(findings: list[Finding]) -> bool:
+    return any(finding.is_scan_error for finding in findings)
 
 
 def scan_repository(root: Path, budget_chars: int = 24000) -> ScanReport:
@@ -294,10 +320,12 @@ def scan_repository(root: Path, budget_chars: int = 24000) -> ScanReport:
             message="Scan target does not exist.",
             file=str(root),
             suggestion="Fix the path before using this result as a CI gate.",
+            is_scan_error=True,
         )
         return ScanReport(
             root=root,
             score=0,
+            scan_error=True,
             findings=[finding],
             stats={
                 "budget_chars": budget_chars,
@@ -322,10 +350,12 @@ def scan_repository(root: Path, budget_chars: int = 24000) -> ScanReport:
             message=f"Could not enumerate scan target: {exc}.",
             file=str(root),
             suggestion="Fix filesystem permissions or narrow the scan target.",
+            is_scan_error=True,
         )
         return ScanReport(
             root=root,
             score=0,
+            scan_error=True,
             findings=[finding],
             stats={
                 "budget_chars": budget_chars,
@@ -355,6 +385,7 @@ def scan_repository(root: Path, budget_chars: int = 24000) -> ScanReport:
                     message=f"Could not read context file: {exc}.",
                     file=relative(path, root),
                     suggestion="Fix permissions or remove the unreadable file from the default agent context path.",
+                    is_scan_error=True,
                 )
             )
             continue
@@ -378,7 +409,10 @@ def scan_repository(root: Path, budget_chars: int = 24000) -> ScanReport:
                 severity="medium",
                 message="No coding-agent instruction file was found.",
                 file=".",
-                suggestion="Add AGENTS.md, CLAUDE.md, .github/copilot-instructions.md, or a similar explicit agent entrypoint.",
+                suggestion=(
+                    "Add AGENTS.md, CLAUDE.md, .github/copilot-instructions.md, "
+                    "or a similar explicit agent entrypoint."
+                ),
             )
         )
 
@@ -397,8 +431,16 @@ def scan_repository(root: Path, budget_chars: int = 24000) -> ScanReport:
 
     context_files.sort(key=lambda item: (-item.priority, item.path))
     mcp_servers.sort(key=lambda item: (item.risk != "high", item.name))
-    findings.sort(key=lambda item: ({"high": 0, "medium": 1, "low": 2}.get(item.severity, 3), item.file, item.line or 0, item.rule_id))
+    findings.sort(
+        key=lambda item: (
+            {"high": 0, "medium": 1, "low": 2}.get(item.severity, 3),
+            item.file,
+            item.line or 0,
+            item.rule_id,
+        )
+    )
 
+    scan_error = has_scan_error(findings)
     stats = {
         "budget_chars": budget_chars,
         "files_scanned": len(files),
@@ -409,5 +451,14 @@ def scan_repository(root: Path, budget_chars: int = 24000) -> ScanReport:
         "high_risk_mcp_servers": sum(1 for item in mcp_servers if item.risk == "high"),
         "total_context_chars": total_context_chars,
         "findings": len(findings),
+        "scan_error": scan_error,
     }
-    return ScanReport(root=root, score=score_findings(findings), findings=findings, context_files=context_files, mcp_servers=mcp_servers, stats=stats)
+    return ScanReport(
+        root=root,
+        score=score_findings(findings),
+        scan_error=scan_error,
+        findings=findings,
+        context_files=context_files,
+        mcp_servers=mcp_servers,
+        stats=stats,
+    )

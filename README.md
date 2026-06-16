@@ -33,7 +33,7 @@ It is intentionally small:
 - No telemetry.
 - Python standard library only.
 - Markdown and JSON output for human review or CI.
-- Deterministic exit code: `0` when score is above `--fail-under`, `2` when it is below.
+- Deterministic exit codes for CI: `0` pass, `1` scan/read/config error, `2` score below `--fail-under`.
 
 ## Install
 
@@ -104,7 +104,7 @@ PYTHONPATH=src python3 -m agent_context_lab brief examples/bloated-context-repo 
 
 ## API
 
-The public surface is CLI-first in `v0.1.0`.
+The public surface is CLI-first in the `v0.1` series.
 
 | Command | Purpose |
 | --- | --- |
@@ -139,6 +139,17 @@ GitHub Actions example:
   run: PYTHONPATH=src python3 -m agent_context_lab scan . --format markdown --fail-under 85
 ```
 
+`--fail-under` gates the computed readiness score after the scan succeeds.
+Use the `scan` command for CI because it includes the full findings table and returns a hard failure when a target path, context file, or MCP config cannot be read deterministically.
+
+Exit codes:
+
+| Code | Meaning |
+| ---: | --- |
+| `0` | Scan completed and score is at or above `--fail-under`, or no threshold was set. |
+| `1` | Scan did not complete cleanly because the path, a context file, or MCP config was unreadable or malformed. |
+| `2` | Scan completed, but the score is below `--fail-under`. |
+
 Use a lower threshold while introducing the gate to an existing repo, then raise it after cleaning stale instruction files.
 
 ## Differentiation
@@ -164,7 +175,7 @@ No. It is read-only.
 
 **Can I use it in CI?**
 
-Yes. Use `--fail-under <score>`. The command returns exit code `2` when the score is below the threshold.
+Yes. Use `--fail-under <score>`. The command returns exit code `1` for deterministic scan failures and `2` when a clean scan scores below the threshold.
 
 **Why does the example repo score poorly?**
 

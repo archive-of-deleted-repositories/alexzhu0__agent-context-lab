@@ -4,9 +4,9 @@ target_user: Developers using Codex, Claude Code, Cursor, or other coding agents
 pain_point: Coding agents silently inherit stale instructions, conflicting rules, oversized context, and risky MCP tools before anyone notices.
 demo_command: PYTHONPATH=src python3 -m agent_context_lab scan examples/conflicting-agent-repo --format markdown
 tier: flagship
-maturity_status: release-ready-2026-06-16
-next_release: v0.1.0
-polish_score: 88
+maturity_status: hardened-v0.1.1-2026-06-16
+next_release: v0.1.1
+polish_score: 92
 topics:
   - ai-tools
   - coding-agents
@@ -24,7 +24,9 @@ launch_copy:
   - Try it with: PYTHONPATH=src python3 -m agent_context_lab scan examples/conflicting-agent-repo --format markdown
 quality_gate:
   commands:
-    - python3 -m unittest discover -s tests
+    - PYTHONPATH=src python3 -m unittest discover -s tests
+    - PYTHONPATH=src python3 -m compileall src tests
+    - PYTHONPATH=src python3 -m agent_context_lab scan examples/clean-agent-repo --fail-under 95
 metrics_goal:
   day_1_stars: 5
   day_3_stars: 15

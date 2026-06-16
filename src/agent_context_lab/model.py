@@ -15,6 +15,7 @@ class Finding:
     file: str
     line: int | None = None
     suggestion: str = ""
+    is_scan_error: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class McpServer:
 class ScanReport:
     root: Path
     score: int
+    scan_error: bool = False
     findings: list[Finding] = field(default_factory=list)
     context_files: list[ContextFile] = field(default_factory=list)
     mcp_servers: list[McpServer] = field(default_factory=list)
